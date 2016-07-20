@@ -1,0 +1,61 @@
+tosca_definitions_version: cloudify_ds1_1_3
+
+description: >
+  This blueprint install Postfix and spamassassin
+
+imports:
+  - http://www.getcloudify.org/spec/cloudify/3.4/types.yaml
+  - http://www.getcloudify.org/spec/openstack-plugin/1.4/plugin.yaml
+  - http://www.getcloudify.org/spec/fabric-plugin/1.3.1/plugin.yaml
+
+inputs:
+
+  image:
+    default: "Ubuntu 16.04"
+
+  flavor:
+    default: "2x2"
+
+  agent_user:
+    default: "ubuntu"
+
+  external_network_name:
+    default: "external"
+
+
+node_templates:
+
+  assassin:
+    type: cloudify.openstack.nodes.Server
+    properties:
+      install_agent: false
+      image: { get_input: image }
+      flavor: { get_input: flavor }
+
+      relationship:
+        - target: assassin_floating_ip
+          type: cloudify.openstack.server_connected_to_floating_ip
+
+        - target: assassin_security_group
+          type: cloudify.openstack.server_connected_to_security_group
+
+  assassin_security_group:
+    type: cloudify.openstack.nodes.SecurityGroup
+    properties:
+      security_group:
+        name: spamassassin_security_group
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          port: { get_property: [
+
+  assassin_floating_ip:
+    type: cloudify.openstack.nodes.FloatingIP
+    properties:
+      floatingip:
+        floating_network_name: { get_input: external_network_name }
+
+outputs:
+
+  SpamAssassin:
+    value:
+      Floating_IP: { get_attribute: [ assassin_floating_ip, floating_ip_address ] }
