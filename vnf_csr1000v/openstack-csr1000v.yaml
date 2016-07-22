@@ -1,0 +1,189 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+description: >
+  This blueprint install VNF Cisco CSR1000V
+
+imports:
+  - http://www.getcloudify.org/spec/cloudify/3.4/types.yaml
+  - http://www.getcloudify.org/spec/openstack-plugin/1.4/plugin.yaml
+  - http://www.getcloudify.org/spec/fabric-plugin/1.4.1/plugin.yaml
+
+inputs:
+
+  image:
+    type: string
+    description:   "csr1000v-universalk9.03.17.02.S.156-1.S2-std.qcow2"
+    default: "c6e48b53-f6ac-497d-8cf2-122b9f05d947"
+
+  flavor:
+    type: string
+    description: "dc1.2x4.40"
+    default: "196235bc-7ca5-4085-ac81-7e0242bda3f9"
+
+  personality_filename:
+    type: string
+    default: "iosxe_config.txt"
+
+  personality_file_data:
+    type: string
+    description: Cisco commands to enable ssh and mgmt interface
+    default: |
+      hostname csr1000v
+      username vnf privilege 15 password 0 vnf
+      ip domain-name nfv.lab
+      crypto key generate rsa modulus 1024
+      service password-encryption
+      aaa new-model
+      interface GigabitEthernet1
+      ip address dhcp
+      no shut
+      exit
+      line vty 0 4
+      transport input ssh
+      password vnf
+      privil level 15
+      exit
+      enable password vnf
+
+  external_network_name:
+    type: string
+    description: Network of FloatingIP
+    default: "external"
+
+  management_network_name:
+    type: string
+    description: It should be assigned to GigabitEthernet1 interface
+    default: "cloudify-management-network"
+
+  management_port:
+    type: string
+    description: SSH port
+    default: 22
+
+  username:
+    type: string
+    default: "vnf"
+
+  password:
+    type: string
+    default: "vnf"
+
+  application_network:
+    type: string
+    default: Application-Net
+
+  application_network_subnet:
+    type: string
+    default: Application-Net-subnet
+
+  application_network_cidr:
+    type: string
+    default: 172.20.0.0/28
+
+  public_network:
+    type: string
+    default: Public-Net
+
+  public_network_subnet:
+    type: string
+    default: Public-Net-subnet
+
+  public_network_cidr:
+    type: string
+    default: 172.10.0.0/28
+
+node_templates:
+
+  csr_node:
+    type: cloudify.openstack.nodes.Server
+    properties:
+      install_agent: false
+      resource_id: CSR1000V
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          inputs:
+            args:
+              image: ''
+              flavor: { get_input: flavor }
+              config_drive: true
+              block_device_mapping_v2:
+                - boot_index: 0
+                  uuid: { get_input: image }
+                  source_type: 'image'
+                  volume_size: 8
+                  destination_type: 'volume'
+                  delete_on_termination: true
+              files: 
+                "iosxe_config.txt":  { get_input: personality_file_data }
+
+    relationships:
+      - target: csr_floating_ip
+        type: cloudify.openstack.server_connected_to_floating_ip
+      - target: csr_security_group
+        type: cloudify.openstack.server_connected_to_security_group
+      - target: public_net
+        type: cloudify.relationships.connected_to
+      - target: application_net
+        type: cloudify.relationships.connected_to
+
+
+  csr_security_group:
+    type: cloudify.openstack.nodes.SecurityGroup
+    properties:
+      security_group:
+        name: csr_security_group
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          port: { get_input: management_port }
+#  Provision Public network and subnet
+
+  public_net:
+    type: cloudify.openstack.nodes.Network
+    properties:
+      resource_id: { get_input: public_network }
+      use_external_resource : false
+
+  public_net_subnet:
+    type: cloudify.openstack.nodes.Subnet
+    properties:
+      resource_id: { get_input: public_network_subnet }
+      use_external_resource : false
+      subnet:
+        ip_version: 4
+        cidr: { get_input: public_network_cidr }
+    relationships:
+      - target: public_net
+        type: cloudify.relationships.contained_in
+
+
+#  Provision Application network and subnet
+
+  application_net:
+    type: cloudify.openstack.nodes.Network
+    properties:
+      resource_id: { get_input: application_network }
+      use_external_resource : false
+
+  application_net_subnet:
+    type: cloudify.openstack.nodes.Subnet
+    properties:
+      resource_id: { get_input: application_network_subnet }
+      use_external_resource : false
+      subnet:
+        ip_version: 4
+        cidr: { get_input: application_network_cidr }
+    relationships:
+      - target: application_net
+        type: cloudify.relationships.contained_in
+  csr_floating_ip:
+    type: cloudify.openstack.nodes.FloatingIP
+    properties:
+      floatingip:
+        floating_network_name: { get_input: external_network_name }
+
+outputs:
+
+  CSR1000V:
+    value:
+      Floating_IP: { get_attribute: [ csr_floating_ip, floating_ip_address ] }

@@ -1,0 +1,60 @@
+################################
+# VNF Cisco CSR1000V inputs
+################################
+
+# ID of qcow2 image from Cisco site "csr1000v-universalk9.03.17.02.S.156-1.S2-std.qcow2"
+image: "c6e48b53-f6ac-497d-8cf2-122b9f05d947"
+
+# ID of flavor acording to Cisco guide requirements 2 CPU, 4 GB RAM ("dc1.2x4.40")
+flavor: "196235bc-7ca5-4085-ac81-7e0242bda3f9"
+
+# Name of file which will be injected during deployment process
+personality_filename: "iosxe_config.txt"
+
+# Data of file
+personality_file_data: |
+  hostname csr1000v
+  username vnf privilege 15 password 0 vnf
+  ip domain-name nfv.lab
+  crypto key generate rsa modulus 1024
+  service password-encryption
+  aaa new-model
+  interface GigabitEthernet1
+  ip address dhcp
+  no shut
+  exit
+  line vty 0 4
+  transport input ssh
+  password vnf
+  privil level 15
+  exit
+  enable password vnf
+
+# Network of FloatingIP pool
+external_network_name: "external"
+
+# Management network
+management_network_name: "cloudify-management-network"
+
+# SSH port
+management_port: 22
+
+# SSH username
+username: "vnf"
+
+# SSH password
+password: "vnf"
+
+# Another network
+application_network: Application-Net
+
+application_network_subnet: Application-Net-subnet
+
+application_network_cidr: 172.20.0.0/28
+
+# Yet another network
+public_network: Public-Net
+
+public_network_subnet: Public-Net-subnet
+
+public_network_cidr: 172.10.0.0/28
