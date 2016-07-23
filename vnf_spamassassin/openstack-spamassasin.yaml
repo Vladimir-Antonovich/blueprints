@@ -6,15 +6,19 @@ description: >
 imports:
   - http://www.getcloudify.org/spec/cloudify/3.4/types.yaml
   - http://www.getcloudify.org/spec/openstack-plugin/1.4/plugin.yaml
-  - http://www.getcloudify.org/spec/fabric-plugin/1.4.1/plugin.yaml
-
+  - http://www.getcloudify.org/spec/diamond-plugin/1.3.3/plugin.yaml
+  
 inputs:
 
   image:
-    default: "Ubuntu 16.04 LTS (Xenial)"
+    description: >
+      Ubuntu 14.04.
+      At the moment the blueprint writing Ubuntu 16.04 does not supported
+    default: 6c3047c6-17b1-4aaf-a657-9229bb481e50
 
   flavor:
-    default: "dc1.2x2.40"
+    description: "2x2"
+    default: c4b193d2-f331-4250-9b15-bbfde97c462a
 
   agent_user:
     default: "ubuntu"
@@ -22,47 +26,66 @@ inputs:
   external_network_name:
     default: "external"
 
-  keypair_name:
-    default: spamassassin_keypair
+  email_relay_network:
+    description: >
+      The network in CIDR format from which you can send emails
+    default: '127.0.0.1/32'
 
-  private_key_path:
-    default: ~/.ssh/spamassassin.key
-
+  email_relay_domain:
+    description: something like example.com
+    default: "vnf.lab"
+ 
 node_templates:
 
   assassin:
     type: cloudify.openstack.nodes.Server
     properties:
-      install_agent: false
       resource_id: "SpamAssassin"
-      image: 
+      cloudify_agent:
+        user: { get_input: agent_user }
+      server:
+        image: { get_input: image }
+        flavor: { get_input: flavor }
     interfaces:
+      cloudify.interfaces.monitoring_agent:
+        install:
+          implementation: diamond.diamond_agent.tasks.install
+          inputs:
+            diamond_config:
+              interval: 1
+        start: diamond.diamond_agent.tasks.start
+        stop: diamond.diamond_agent.tasks.stop
+        uninstall: diamond.diamond_agent.tasks.uninstall
+      cloudify.interfaces.monitoring:
+        start:
+          implementation: diamond.diamond_agent.tasks.add_collectors
+          inputs:
+            collectors_config:
+              CPUCollector: {}
+              MemoryCollector: {}
+              LoadAverageCollector: {}
+              DiskUsageCollector:
+                config:
+                  devices: x?vd[a-z]+[0-9]*$
+              NetworkCollector: {}
       cloudify.interfaces.lifecycle:
         create:
           inputs:
             args:
               image: { get_input: image }
               flavor: { get_input: flavor }
-              
+      cloudify.interfaces.validation:
+        creation:
+          inputs:
+            args:
+              image: { get_input: image }
+              flavor: { get_input: flavor }
+
     relationships:
       - target: assassin_floating_ip
         type: cloudify.openstack.server_connected_to_floating_ip
       - target: assassin_security_group
         type: cloudify.openstack.server_connected_to_security_group
-
-  keypair:
-    type: cloudify.openstack.nodes.KeyPair
-    properties:
-      private_key_path: { get_inputs: private_key_path }
-      resource_id: { get_inputs: keypair_name }
-    interfaces:
-      cloudify.interfaces.lifecycle:
-        create:
-          inputs:
-            args:
-              keypair:
-                - name: { get_inputs: keypair_name }
-                  public_key: { get_inputs: public_key}
 
   assassin_security_group:
     type: cloudify.openstack.nodes.SecurityGroup
@@ -72,6 +95,8 @@ node_templates:
       rules:
         - remote_ip_prefix: 0.0.0.0/0
           port: 25
+        - remote_ip_prefix: 0.0.0.0/0
+          port: 22
 
   assassin_floating_ip:
     type: cloudify.openstack.nodes.FloatingIP
@@ -84,9 +109,13 @@ node_templates:
     interfaces:
       cloudify.interfaces.lifecycle:
         create:
-          implementation: script.script_runner.task.run
+          implementation: scripts/postfix_create.sh
           inputs:
-            script_path: scripts/postfix_create.sh
+            process:
+               cwd: /tmp
+               env:
+                 MY_NETWORK: { get_input: email_relay_network}
+                 MY_DOMAIN: { get_input: email_relay_domain }
     relationships:
       - type: cloudify.relationships.contained_in
         target: assassin
@@ -95,10 +124,7 @@ node_templates:
     type: cloudify.nodes.ApplicationServer
     interfaces:
       cloudify.interfaces.lifecycle:
-        create:
-          implementation: script.script_runner.task.run
-          inputs:
-            script_path: scripts/spamassassin_create.sh
+        create: scripts/spamassassin_create.sh
     relationships:
       - type: cloudify.relationships.contained_in
         target: assassin
