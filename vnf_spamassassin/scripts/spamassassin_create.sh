@@ -4,11 +4,13 @@ set +e
 
 export DEBIAN_FRONTEND=noninteractive
 
+echo $(hostname -I) $(hostname) | sudo  tee --append /etc/hosts
+
 LOG_DIR="/var/log/spamassassin"
 DEFAULT_SPAMASSASSIN="/etc/default/spamassassin"
 LOCAL_CONF="/etc/spamassassin/local.cf"
-POSTFIX_MASTER="/etc/postfix/master.cf"
 
+sudo apt-get -y update
 sudo apt-get -y install spamassassin spamc
 sudo groupadd spamd
 sudo useradd -g spamd -s /bin/false -d $LOG_DIR spamd
@@ -17,15 +19,9 @@ sudo chown spamd:spamd $LOG_DIR
 sudo sed -i 's/ENABLED=0/ENABLED=1/' $DEFAULT_SPAMASSASSIN
 sudo sed -i 's/CRON=0/CRON=1/' $DEFAULT_SPAMASSASSIN
 sudo sed -i "/^OPTIONS/ i SAHOME=$LOG_DIR" $DEFAULT_SPAMASSASSIN
-sudo sed -i '/^OPTIONS=.*/ s//OPTIONS="--create-prefs --max-children 2 --username spamd -H ${SAHOME} -s ${SAHOME}spamd.log"/' $DEFAULT_SPAMASSASSIN
+sudo awk -vvar="${MAIL_SERVER_IP}" '{if (/OPTIONS=/) print "OPTIONS=\"--create-prefs --max-children 2 --username spamd -H ${SAHOME} -s ${SAHOME}spamd.log -i 0.0.0.0 -A " var "\""; else print $0}' $DEFAULT_SPAMASSASSIN > /tmp/spamassassin && sudo mv /tmp/spamassassin  $DEFAULT_SPAMASSASSIN
 
-sudo sudo service spamassassin start
-
-# Configure postfix
-
-sudo sed -i '/^smtp      inet  n       -       -       -       -       smtpd/ s/$/ -o content_filter=spamassassin/' $POSTFIX_MASTER
-echo 'spamassassin unix -     n       n       -       -       pipe user=spamd argv=/usr/bin/spamc -f -e /usr/sbin/sendmail -oi -f ${sender} ${recipient}' | sudo tee --append $POSTFIX_MASTER > /dev/null
-sudo service postfix restart
+sudo service spamassassin start
 
 # Config Spamassassin
 sudo sed -i 's/# rewrite_header Subject *****SPAM*****/rewrite_header Subject *****SPAM*****/' $LOCAL_CONF

@@ -11,7 +11,7 @@ imports:
 inputs:
 
   image:
-    description: >
+    description: |
       Ubuntu 14.04.
       At the moment the blueprint writing Ubuntu 16.04 does not supported
     default: 6c3047c6-17b1-4aaf-a657-9229bb481e50
@@ -26,15 +26,14 @@ inputs:
   external_network_name:
     default: "external"
 
-  email_relay_network:
-    description: >
-      The network in CIDR format from which you can send emails
-    default: '127.0.0.1/32'
-
-  email_relay_domain:
-    description: something like example.com
-    default: "vnf.lab"
- 
+  mail_server_ip:
+    description: |
+      Specify a list of authorized hosts or networks which can connect to this instance.
+      Single IP addresses can be given, ranges of IP addresses in address/masklength CIDR format
+      Hostnames are not supported, only IP addresses.
+      Can take a list of addresses separated by commas.
+    
+    
 node_templates:
 
   assassin:
@@ -94,7 +93,7 @@ node_templates:
         name: spamassassin_security_group
       rules:
         - remote_ip_prefix: 0.0.0.0/0
-          port: 25
+          port: 783
         - remote_ip_prefix: 0.0.0.0/0
           port: 22
 
@@ -104,33 +103,20 @@ node_templates:
       floatingip:
         floating_network_name: { get_input: external_network_name }
 
-  postfix_node:
-    type: cloudify.nodes.ApplicationServer
-    interfaces:
-      cloudify.interfaces.lifecycle:
-        create:
-          implementation: scripts/postfix_create.sh
-          inputs:
-            process:
-               cwd: /tmp
-               env:
-                 MY_NETWORK: { get_input: email_relay_network}
-                 MY_DOMAIN: { get_input: email_relay_domain }
-    relationships:
-      - type: cloudify.relationships.contained_in
-        target: assassin
-
   spamassassin_node:
     type: cloudify.nodes.ApplicationServer
     interfaces:
       cloudify.interfaces.lifecycle:
-        create: scripts/spamassassin_create.sh
+        create: 
+          implementation: scripts/spamassassin_create.sh
+          inputs:
+            process:
+              cwd: /tmp
+              env:
+                MAIL_SERVER_IP: { get_input: mail_server_ip }
     relationships:
       - type: cloudify.relationships.contained_in
         target: assassin
-      - type: cloudify.relationships.depends_on
-        target: postfix_node
-
     
 
 outputs:
@@ -138,4 +124,4 @@ outputs:
   SpamAssassin:
     value:
       Floating_IP: { get_attribute: [ assassin_floating_ip, floating_ip_address ] }
-      SMTP_Port: 25
+      Port: 783

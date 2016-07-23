@@ -1,0 +1,17 @@
+# Ubuntu 14.04 image ID
+image: ''
+
+#Openstack flavor ID
+flavor: ''
+
+# Image username
+agent_user: ''
+
+# External network name
+external_network_name: ''
+
+#      Specify a list of authorized hosts or networks which can connect to this instance.
+#      Single IP addresses can be given, ranges of IP addresses in address/masklength CIDR format
+#      Hostnames are not supported, only IP addresses.
+#      Can take a list of addresses separated by commas.
+mail_server_ip: ''
