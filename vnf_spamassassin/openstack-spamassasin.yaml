@@ -1,4 +1,4 @@
-tosca_definitions_version: cloudify_ds1_1_3
+tosca_definitions_version: cloudify_dsl_1_3
 
 description: >
   This blueprint install Postfix and spamassassin
@@ -6,15 +6,15 @@ description: >
 imports:
   - http://www.getcloudify.org/spec/cloudify/3.4/types.yaml
   - http://www.getcloudify.org/spec/openstack-plugin/1.4/plugin.yaml
-  - http://www.getcloudify.org/spec/fabric-plugin/1.3.1/plugin.yaml
+  - http://www.getcloudify.org/spec/fabric-plugin/1.4.1/plugin.yaml
 
 inputs:
 
   image:
-    default: "Ubuntu 16.04"
+    default: "Ubuntu 16.04 LTS (Xenial)"
 
   flavor:
-    default: "2x2"
+    default: "dc1.2x2.40"
 
   agent_user:
     default: "ubuntu"
@@ -22,6 +22,11 @@ inputs:
   external_network_name:
     default: "external"
 
+  keypair_name:
+    default: spamassassin_keypair
+
+  private_key_path:
+    default: ~/.ssh/spamassassin.key
 
 node_templates:
 
@@ -29,15 +34,35 @@ node_templates:
     type: cloudify.openstack.nodes.Server
     properties:
       install_agent: false
-      image: { get_input: image }
-      flavor: { get_input: flavor }
+      resource_id: "SpamAssassin"
+      image: 
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          inputs:
+            args:
+              image: { get_input: image }
+              flavor: { get_input: flavor }
+              
+    relationships:
+      - target: assassin_floating_ip
+        type: cloudify.openstack.server_connected_to_floating_ip
+      - target: assassin_security_group
+        type: cloudify.openstack.server_connected_to_security_group
 
-      relationship:
-        - target: assassin_floating_ip
-          type: cloudify.openstack.server_connected_to_floating_ip
-
-        - target: assassin_security_group
-          type: cloudify.openstack.server_connected_to_security_group
+  keypair:
+    type: cloudify.openstack.nodes.KeyPair
+    properties:
+      private_key_path: { get_inputs: private_key_path }
+      resource_id: { get_inputs: keypair_name }
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          inputs:
+            args:
+              keypair:
+                - name: { get_inputs: keypair_name }
+                  public_key: { get_inputs: public_key}
 
   assassin_security_group:
     type: cloudify.openstack.nodes.SecurityGroup
@@ -46,7 +71,7 @@ node_templates:
         name: spamassassin_security_group
       rules:
         - remote_ip_prefix: 0.0.0.0/0
-          port: { get_property: [
+          port: 25
 
   assassin_floating_ip:
     type: cloudify.openstack.nodes.FloatingIP
@@ -54,8 +79,37 @@ node_templates:
       floatingip:
         floating_network_name: { get_input: external_network_name }
 
+  postfix_node:
+    type: cloudify.nodes.ApplicationServer
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          implementation: script.script_runner.task.run
+          inputs:
+            script_path: scripts/postfix_create.sh
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: assassin
+
+  spamassassin_node:
+    type: cloudify.nodes.ApplicationServer
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          implementation: script.script_runner.task.run
+          inputs:
+            script_path: scripts/spamassassin_create.sh
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: assassin
+      - type: cloudify.relationships.depends_on
+        target: postfix_node
+
+    
+
 outputs:
 
   SpamAssassin:
     value:
       Floating_IP: { get_attribute: [ assassin_floating_ip, floating_ip_address ] }
+      SMTP_Port: 25

@@ -39,12 +39,6 @@ management_network_name: "cloudify-management-network"
 # SSH port
 management_port: 22
 
-# SSH username
-username: "vnf"
-
-# SSH password
-password: "vnf"
-
 # Another network
 application_network: Application-Net
 

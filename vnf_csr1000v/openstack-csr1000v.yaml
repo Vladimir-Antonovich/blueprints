@@ -60,14 +60,6 @@ inputs:
     description: SSH port
     default: 22
 
-  username:
-    type: string
-    default: "vnf"
-
-  password:
-    type: string
-    default: "vnf"
-
   application_network:
     type: string
     default: Application-Net
@@ -176,6 +168,7 @@ node_templates:
     relationships:
       - target: application_net
         type: cloudify.relationships.contained_in
+
   csr_floating_ip:
     type: cloudify.openstack.nodes.FloatingIP
     properties:
