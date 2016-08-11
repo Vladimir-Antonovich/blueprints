@@ -1,0 +1,34 @@
+################################
+# VNF Cisco CSR1000V inputs
+################################
+
+# ID of qcow2 image from Cisco site "csr1000v-universalk9.03.17.02.S.156-1.S2-std.qcow2"
+image: "ae167e47-5a06-47a3-8f33-2ca319fb4618"
+
+# ID of flavor acording to Cisco guide requirements 2 CPU, 4 GB RAM ("dc1.2x4.40")
+flavor: "dcd2be06-0940-4410-9d1f-cbdc22a847e7"
+
+# Network of FloatingIP pool
+external_network_name: "external"
+
+# Management network
+management_network_name: "gil-cloudify-management-network"
+
+# SSH port
+management_port: 22
+
+# Another network
+application_network: Application-Net
+
+application_network_subnet: Application-Net-subnet
+
+application_network_cidr: 172.20.0.0/28
+
+# Yet another network
+public_network: Public-Net
+
+public_network_subnet: Public-Net-subnet
+
+public_network_cidr: 172.10.0.0/28
+
+public_network_static_ip: 172.16.0.1
