@@ -1,0 +1,39 @@
+################################
+# VNF Vyatta vRouter 5600 inputs
+################################
+
+# ID of qcow2 image from vyatta site "vyatta-kvm_4.2R1_amd64.qcow2"
+image: "6118bab2-01af-49d2-ae09-5de93cbf4f7c"
+
+# ID of flavor acording to vRouter 5600 guide requirements 2 CPU, 4 GB RAM ("dc1.2x4.40")
+flavor: "196235bc-7ca5-4085-ac81-7e0242bda3f9"
+
+# Floating IP network
+external_network_name: "external"
+
+# Management parameters
+management_network_name: "cfy-management-network-vlad"
+management_port: 22
+
+# Security groups names
+vyatta_mgmt_security_group_name: "vyatta_mgmt_security_group"
+vyatta_security_group_name: "vyatta_security_group"
+
+# Internal network 1
+network1: "network1"
+network1_subnet: "network1-subnet"
+network1_cidr: "172.10.0.0/28"
+network1_vyatta_port_ip: "172.10.0.1"
+
+# Internal network2
+network2: "network2"
+network2_subnet: "network2-subnet"
+network2_cidr: "172.20.0.0/28"
+network2_vyatta_port_ip: "172.20.0.1"
+
+# Vyatta admin credentials
+vyatta_user: "vyatta"
+vyatta_password: "vyatta"
+
+# Netconf protocol port
+netconf_port: 830

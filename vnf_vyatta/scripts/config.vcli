@@ -1,0 +1,46 @@
+#!/bin/vcli -f
+configure
+trap "{ end_configure; }" EXIT HUP
+# netconf enable
+set service netconf
+set service ssh port 830
+set service ssh port 22
+
+# enable and configure network interfaces
+set interfaces dataplane dp0s4
+set interfaces dataplane dp0s4 address dhcp
+set interfaces dataplane dp0s5
+set interfaces dataplane dp0s5 address dhcp
+
+# firewall rules
+# enabe stateful firewall
+set security firewall global-state-policy icmp
+set security firewall global-state-policy tcp
+set security firewall global-state-policy udp
+
+set security firewall name test-1 rule 1 action accept
+set security firewall name test-1 rule 1 protocol tcp
+set security firewall name test-1 rule 1 destination port ssh
+
+set security firewall name test-1 rule 2 action accept
+set security firewall name test-1 rule 2 protocol tcp
+set security firewall name test-1 rule 2 destination port http
+
+set security firewall name test-1 rule 3 action accept
+set security firewall name test-1 rule 3 protocol tcp
+set security firewall name test-1 rule 3 destination port https
+
+set security firewall name test-1 rule 4 action accept
+set security firewall name test-1 rule 4 protocol icmp
+set security firewall name test-1 rule 4 icmp name echo-request
+
+set security firewall name test-1 rule 5 action accept
+set security firewall name test-1 rule 5 state enable
+
+# assign firewall rules_group to ports
+set interfaces dataplane dp0s4 firewall in test-1
+set interfaces dataplane dp0s5 firewall in test-1
+
+commit
+save
+end_configure

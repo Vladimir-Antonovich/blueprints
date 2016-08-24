@@ -1,0 +1,263 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+description: >
+  This blueprint install and configure VYATTA vRouter 5600 
+  from vyatta-kvm_4.2R1_amd64.qcow2
+
+imports:
+  - http://www.getcloudify.org/spec/cloudify/3.4/types.yaml
+  - http://www.getcloudify.org/spec/openstack-plugin/1.4/plugin.yaml
+  - http://www.getcloudify.org/spec/fabric-plugin/1.4.1/plugin.yaml
+
+
+inputs:
+
+  image:
+    type: string
+    description: "vyatta-kvm_4.2R1_amd64.qcow2"
+    default: "6118bab2-01af-49d2-ae09-5de93cbf4f7c"
+
+  flavor:
+    type: string
+    description: "dc1.2x4.40"
+    default: "196235bc-7ca5-4085-ac81-7e0242bda3f9"
+
+  external_network_name:
+    type: string
+    description: Network of FloatingIP
+    default: "external"
+
+  management_network_name:
+    type: string
+    description: Management interface, usually first interface
+    default: "cfy-management-network-vlad"
+
+  management_port:
+    type: string
+    description: SSH port
+    default: 22
+
+  network1:
+    type: string
+    default: network1
+
+  network1_subnet:
+    type: string
+    default: network1-subnet
+
+  network1_cidr:
+    type: string
+    default: 172.10.0.0/28
+  
+  network1_vyatta_port_ip:
+    type: string
+    default: 172.10.0.1
+
+  network2:
+    type: string
+    default: network2
+
+  network2_subnet:
+    type: string
+    default: network2-subnet
+
+  network2_cidr:
+    type: string
+    default: 172.20.0.0/28
+
+  network2_vyatta_port_ip:
+    type: string
+    default: 172.20.0.1
+  
+  vyatta_user:
+    type: string
+    default: vyatta
+
+  vyatta_password:
+    type: string
+    default: vyatta
+
+  netconf_port:
+    type: integer
+    default: 830
+
+  vyatta_mgmt_security_group_name:
+    type: string
+    default: "vyatta_mgmt_security_group"
+
+  vyatta_security_group_name:
+    type: string
+    default: "vyatta_security_group"
+    
+node_templates:
+
+  vyatta_node:
+    type: cloudify.openstack.nodes.Server
+    properties:
+      image: { get_input: image }
+      flavor: { get_input: flavor }
+      management_network_name: { get_input: management_network_name }
+      install_agent: false
+      resource_id: vyatta-node
+
+
+    relationships:
+      - target: floating_ip
+        type: cloudify.openstack.server_connected_to_floating_ip
+      - target: vyatta_mgmt_security_group
+        type: cloudify.openstack.server_connected_to_security_group
+      - target: network1_vyatta_port
+        type: cloudify.relationships.connected_to
+      - target: network2_vyatta_port
+        type: cloudify.relationships.connected_to
+
+
+  vyatta_mgmt_security_group:
+    type: cloudify.openstack.nodes.SecurityGroup
+    properties:
+      security_group:
+        name: { get_input: vyatta_mgmt_security_group_name }
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          port: { get_input: management_port }
+        - remote_ip_prefix: 0.0.0.0/0
+          port: 830
+
+  vyatta_security_group:
+    type: cloudify.openstack.nodes.SecurityGroup
+    properties:
+      security_group:
+        name: { get_input: vyatta_security_group_name }
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          port: 22
+        - remote_ip_prefix: 0.0.0.0/0
+          port: 80
+        - remote_ip_prefix: 0.0.0.0/0
+          port: 443
+        - protocol: icmp
+          port_range_min: 0
+          port_range_max: 0
+          remote_ip_prefix: 0.0.0.0/0
+  network1:
+    type: cloudify.openstack.nodes.Network
+    properties:
+      resource_id: { get_input: network1 }
+      use_external_resource : false
+
+  network1_subnet:
+    type: cloudify.openstack.nodes.Subnet
+    properties:
+      resource_id: { get_input: network1_subnet }
+      use_external_resource : false
+      subnet:
+        ip_version: 4
+        cidr: { get_input: network1_cidr }
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          inputs:
+            args:
+              gateway_ip: { get_input: network1_vyatta_port_ip }
+    relationships:
+      - target: network1
+        type: cloudify.relationships.contained_in
+
+  network1_vyatta_port:
+    type: cloudify.openstack.nodes.Port
+    properties:
+      use_external_resource : false
+      fixed_ip: { get_input: network1_vyatta_port_ip }
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          inputs:
+            args:
+              allowed_address_pairs:
+                - ip_address: "0.0.0.0/0"
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: network1
+      - type: cloudify.relationships.depends_on
+        target: network1_subnet
+      - target: vyatta_security_group
+        type: cloudify.openstack.port_connected_to_security_group
+
+  network2:
+    type: cloudify.openstack.nodes.Network
+    properties:
+      resource_id: { get_input: network2 }
+      use_external_resource : false
+
+  network2_subnet:
+    type: cloudify.openstack.nodes.Subnet
+    properties:
+      resource_id: { get_input: network2_subnet }
+      use_external_resource : false
+      subnet:
+        ip_version: 4
+        cidr: { get_input: network2_cidr }
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          inputs:
+            args:
+              gateway_ip: { get_input: network2_vyatta_port_ip }
+    relationships:
+      - target: network2
+        type: cloudify.relationships.contained_in
+
+  network2_vyatta_port:
+    type: cloudify.openstack.nodes.Port
+    properties:
+      use_external_resource : false
+      fixed_ip: { get_input: network2_vyatta_port_ip }
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          inputs:
+            args:
+              allowed_address_pairs:
+                - ip_address: "0.0.0.0/0"
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: network2
+      - type: cloudify.relationships.depends_on
+        target: network2_subnet
+      - target: vyatta_security_group
+        type: cloudify.openstack.port_connected_to_security_group
+        
+  floating_ip:
+    type: cloudify.openstack.nodes.FloatingIP
+    properties:
+      floatingip:
+        floating_network_name: { get_input: external_network_name }
+
+# Vaytta configuration via SSH and vCLI
+
+  vyatta-ssh:
+    type: cloudify.nodes.ApplicationServer
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        start:
+          implementation: fabric.fabric_plugin.tasks.run_task
+          inputs:
+            tasks_file: "scripts/tasks.py"
+            task_name: config
+            task_properties:
+              vcli_script: "scripts/config.vcli"
+            fabric_env:
+              host_string: { get_attribute: [ floating_ip, floating_ip_address ] }
+              user: { get_input: vyatta_user }
+              password: { get_input: vyatta_password }
+              use_shell: true
+              shell: "/bin/vcli -f"
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: vyatta_node
+
+outputs:
+
+  VYATTA:
+    value:
+      Floating_IP: { get_attribute: [ floating_ip, floating_ip_address ] }
