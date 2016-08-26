@@ -35,7 +35,11 @@ set security firewall name test-1 rule 4 protocol icmp
 set security firewall name test-1 rule 4 icmp name echo-request
 
 set security firewall name test-1 rule 5 action accept
-set security firewall name test-1 rule 5 state enable
+set security firewall name test-1 rule 5 protocol udp
+set security firewall name test-1 rule 5 destination port domain
+
+set security firewall name test-1 rule 6 action accept
+set security firewall name test-1 rule 6 state enable
 
 # assign firewall rules_group to ports
 set interfaces dataplane dp0s4 firewall in test-1

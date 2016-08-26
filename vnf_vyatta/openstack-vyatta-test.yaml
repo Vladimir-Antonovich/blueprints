@@ -13,6 +13,7 @@ imports:
 
 inputs:
 
+# vyatta inputs
   image:
     type: string
     description:   "vyatta-kvm_4.2R1_amd64.qcow2"
@@ -23,14 +24,19 @@ inputs:
     description: "dc1.2x4.40"
     default: "196235bc-7ca5-4085-ac81-7e0242bda3f9"
 
+  vyatta_hostname:
+    type: string
+    description: Vyatta hostname
+    default: "New-vyatta-router"
+    
   external_network_name:
     type: string
     description: Network of FloatingIP
     default: "external"
 
-  management_network_name:
+  vyatta_management_network_name:
     type: string
-    description: Management interface, usually first interface
+    description: Vyatta management interface, usually first interface
     default: "cfy-management-network-vlad"
 
   management_port:
@@ -118,7 +124,7 @@ node_templates:
     properties:
       image: { get_input: image }
       flavor: { get_input: flavor }
-      management_network_name: { get_input: management_network_name }
+      management_network_name: { get_input: vyatta_management_network_name }
       install_agent: false
       resource_id: vyatta-node
 
@@ -151,16 +157,13 @@ node_templates:
       security_group:
         name: { get_input: vyatta_security_group_name }
       rules:
-        - remote_ip_prefix: 0.0.0.0/0
-          port: 22
-        - remote_ip_prefix: 0.0.0.0/0
-          port: 80
-        - remote_ip_prefix: 0.0.0.0/0
-          port: 443
+        - protocol: tcp
+        - protocol: udp
         - protocol: icmp
           port_range_min: 0
           port_range_max: 0
           remote_ip_prefix: 0.0.0.0/0
+
   network1:
     type: cloudify.openstack.nodes.Network
     properties:
@@ -180,6 +183,7 @@ node_templates:
         create:
           inputs:
             args:
+              dns_nameservers: [8.8.8.8]
               gateway_ip: { get_input: network1_vyatta_port_ip }
     relationships:
       - target: network1
@@ -225,6 +229,7 @@ node_templates:
           inputs:
             args:
               gateway_ip: { get_input: network2_vyatta_port_ip }
+              dns_nameservers: [8.8.8.8]
     relationships:
       - target: network2
         type: cloudify.relationships.contained_in
@@ -255,6 +260,12 @@ node_templates:
       floatingip:
         floating_network_name: { get_input: external_network_name }
 
+  vm2_floating_ip:
+    type: cloudify.openstack.nodes.FloatingIP
+    properties:
+      floatingip:
+        floating_network_name: { get_input: external_network_name }
+        
 # Vaytta configuration via SSH and vCLI
 
   vyatta-ssh:
@@ -278,13 +289,61 @@ node_templates:
       - type: cloudify.relationships.contained_in
         target: vyatta_node
 
-# VMs and ports for test forwarding via vyatta
+  vyatta-set-hostname:
+    type: cloudify.nodes.ApplicationServer
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        start:
+          implementation: fabric.fabric_plugin.tasks.run_task
+          inputs:
+            tasks_file: "scripts/tasks.py"
+            task_name: set_hostname
+            task_properties:
+              hostname: { get_input: vyatta_hostname }
+            fabric_env:
+              host_string: { get_attribute: [ floating_ip, floating_ip_address ] }
+              user: { get_input: netconf_user }
+              password: { get_input: netconf_password }
+              use_shell: true
+              shell: "/bin/vcli -c"
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: vyatta_node
+      - type: cloudify.relationships.depends_on
+        target: vyatta-ssh
+        
+  vyatta-network1-nat:
+    type: cloudify.nodes.ApplicationServer
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        start:
+          implementation: fabric.fabric_plugin.tasks.run_task
+          inputs:
+            tasks_file: "scripts/tasks.py"
+            task_name: set_nat
+            task_properties:
+              network_cidr: { get_input: network1_cidr }
+            fabric_env:
+              host_string: { get_attribute: [ floating_ip, floating_ip_address ] }
+              user: { get_input: netconf_user }
+              password: { get_input: netconf_password }
+              use_shell: true
+              shell: "/bin/vcli -c"
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: vyatta_node
+      - type: cloudify.relationships.depends_on
+        target: vyatta-ssh
+      - type: cloudify.relationships.depends_on
+        target: vyatta-set-hostname
+# VMs and ports for test traffic via vyatta
 
 # VM1
 
   vm1:
     type: cloudify.openstack.nodes.Server
     properties:
+      install_agent: true
       agent_config:
         user: 'centos'
     interfaces:
@@ -301,7 +360,8 @@ node_templates:
                 echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "USERCTL=yes" >> /etc/sysconfig/network-scripts/ifcfg-eth1
-                echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+                echo "PEERDNS=yes" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+                echo "DEFROUTE=yes" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "IPV6INIT=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "PERSISTENT_DHCLIENT="1" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "172.20.0.0/28 via 172.10.0.1 dev eth1" >> /etc/sysconfig/network-scripts/route-eth1
@@ -309,6 +369,8 @@ node_templates:
     relationships:
       - target: network1_vm1_port
         type: cloudify.relationships.connected_to
+      - target: vyatta-network1-nat
+        type: cloudify.relationships.depends_on
 
 
   network1_vm1_port:
@@ -331,7 +393,18 @@ node_templates:
       - target: vyatta_security_group
         type: cloudify.openstack.port_connected_to_security_group
 
-
+  httpd_vm1:
+    type: cloudify.nodes.ApplicationServer
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create: 
+          implementation: scripts/httpd_create.sh
+          inputs:
+            process:
+              cwd: /tmp
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: vm1
 # VM2
 
   vm2:
@@ -354,6 +427,7 @@ node_templates:
                 echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "USERCTL=yes" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+                echo "DEFROUTE=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "IPV6INIT=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "PERSISTENT_DHCLIENT="1" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "172.10.0.0/28 via 172.20.0.1 dev eth1" >> /etc/sysconfig/network-scripts/route-eth1
@@ -361,6 +435,8 @@ node_templates:
     relationships:
       - target: network2_vm2_port
         type: cloudify.relationships.connected_to
+      - target: vm2_floating_ip
+        type: cloudify.openstack.server_connected_to_floating_ip
 
   network2_vm2_port:
     type: cloudify.openstack.nodes.Port
@@ -389,3 +465,6 @@ outputs:
   VYATTA:
     value:
       Floating_IP: { get_attribute: [ floating_ip, floating_ip_address ] }
+  VM2:
+    value:
+      Floating_IP: { get_attribute: [ vm2_floating_ip, floating_ip_address ] }
