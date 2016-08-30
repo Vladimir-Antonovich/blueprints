@@ -103,8 +103,8 @@ inputs:
     default: "ebab03e6-a674-4b6e-8f60-691c90fbcdc6"
   vm_flavor:
     type: string
-    description: "dc1.2x4.40"
-    default: "196235bc-7ca5-4085-ac81-7e0242bda3f9"
+    description: "dc1.2x2.40"
+    default: "c4b193d2-f331-4250-9b15-bbfde97c462a"
 
   vm1_port_ip:
     type: string

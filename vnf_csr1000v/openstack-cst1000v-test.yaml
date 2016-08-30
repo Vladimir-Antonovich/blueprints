@@ -10,23 +10,28 @@ imports:
 
 inputs:
 
+# Cisco CSR1000v inputs
   image:
     type: string
     description:   "csr1000v-universalk9.03.17.02.S.156-1.S2-std.qcow2"
-    default: "c6e48b53-f6ac-497d-8cf2-122b9f05d947"
+    default: "d1d5a436-ceaa-40a1-8c28-62440c71c3c7"
 
   flavor:
     type: string
     description: "dc1.2x4.40"
     default: "196235bc-7ca5-4085-ac81-7e0242bda3f9"
-  
+
+  user:
+    type: string
+    default: vnf
+    
+  password:
+    type: string
+    default: vnf
+
   personality_filename:
     type: string
     default: "iosxe_config.txt"
-
-  public_network_static_ip:
-    default: "172.16.0.1"
-    type: string
 
   personality_file_data:
     type: string
@@ -57,9 +62,32 @@ inputs:
       privil level 15
       exit
       enable password vnf
-      ip route 0.0.0.0 0.0.0.0 172.16.0.1
-      wr mem
+      ip route 0.0.0.0 0.0.0.0 dhcp
+      end
+      
 
+  cisco_new_name:
+    type: string
+    description: "new router name"
+    default: "cisco_new_name"
+# VMs data
+
+  vm_image:
+    type: string
+    description: "CentOS 7.2"
+    default: "ebab03e6-a674-4b6e-8f60-691c90fbcdc6"
+
+  vm_flavor:
+    type: string
+    description: "dc1.2x2.40"
+    default: "c4b193d2-f331-4250-9b15-bbfde97c462a"
+
+# Networks
+    
+  public_network_static_ip:
+    default: "172.16.0.1"
+    type: string
+    
   external_network_name:
     type: string
     description: Network of FloatingIP
@@ -68,44 +96,63 @@ inputs:
   management_network_name:
     type: string
     description: It should be assigned to GigabitEthernet1 interface
-    default: "cloudify-management-network"
+    default: "cfy-management-network-vlad"
 
   management_port:
     type: string
     description: SSH port
     default: 22
 
-  application_network:
+  cisco_network1:
     type: string
-    default: Application-Net
+    default: cisco_network1
 
-  application_network_subnet:
+  cisco_network1_subnet:
     type: string
-    default: Application-Net-subnet
+    default: cisco_network1_subnet
 
-  application_network_cidr:
+  cisco_network1_cidr:
     type: string
-    default: 172.20.0.0/28
+    default: 172.11.0.0/28
 
-  public_network:
+  network1_cisco_port_ip:
     type: string
-    default: Public-Net
+    default: 172.11.0.1
 
-  public_network_subnet:
+  cisco_network2:
     type: string
-    default: Public-Net-subnet
+    default: cisco_network2
 
-  public_network_cidr:
+  cisco_network2_subnet:
     type: string
-    default: 172.10.0.0/28
+    default: cisco_network2_subnet
+
+  cisco_network2_cidr:
+    type: string
+    default: 172.21.0.0/28
+
+  network2_cisco_port_ip:
+    type: string
+    default: 172.21.0.1
+
+  web_server_port_ip:
+    type: string
+    description: "vm1 IP"
+    default: 172.11.0.3
+    
+  client_port_ip:
+    type: string
+    description: "vm2 IP"
+    default: 172.21.0.3
 
 node_templates:
-
-  csr_node:
+        
+  csr1000v_node:
     type: cloudify.openstack.nodes.Server
     properties:
       install_agent: false
-      resource_id: CSR1000V
+      resource_id: CSR1000V-router
+      management_network_name: { get_input: management_network_name }
     interfaces:
       cloudify.interfaces.lifecycle:
         create:
@@ -113,6 +160,7 @@ node_templates:
             args:
               image: ''
               flavor: { get_input: flavor }
+              availability_zone: "Production"
               config_drive: true
               block_device_mapping_v2:
                 - boot_index: 0
@@ -123,7 +171,6 @@ node_templates:
                   delete_on_termination: true
               files: 
                 "iosxe_config.txt":  { get_input: personality_file_data }
-
     relationships:
       - target: csr_floating_ip
         type: cloudify.openstack.server_connected_to_floating_ip
@@ -134,9 +181,37 @@ node_templates:
       - target: network2_port1
         type: cloudify.relationships.connected_to
 
+      
+# CSR1000V configuration via SSH
+
+  csr1000v-set-hostname:
+    type: cloudify.nodes.ApplicationServer
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        start:
+          implementation: fabric.fabric_plugin.tasks.run_task
+          inputs:
+            tasks_file: "scripts/tasks.py"
+            task_name: set_hostname
+            task_properties:
+              hostname: { get_input: cisco_new_name }
+            fabric_env:
+              host_string: { get_attribute: [ csr_floating_ip, floating_ip_address ] }
+              user: { get_input: user }
+              password: { get_input: password }
+              use_shell: false
+              no_agent: true
+              no_keys: true
+              key_filename: ''
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: csr1000v_node
+
   web_server:
     type: cloudify.openstack.nodes.Server
     properties:
+      install_agent: true
+      management_network_name: { get_input: management_network_name }
       agent_config:
         user: 'centos'
     interfaces:
@@ -144,8 +219,9 @@ node_templates:
         create:
           inputs:
             args:
-              image: 'ebab03e6-a674-4b6e-8f60-691c90fbcdc6'
-              flavor: { get_input: flavor }
+              config_drive: true
+              image: { get_input: vm_image }
+              flavor: { get_input: vm_flavor }
               userdata: |
                 #!/bin/bash
                 echo "DEVICE=eth1" >> /etc/sysconfig/network-scripts/ifcfg-eth1
@@ -154,20 +230,38 @@ node_templates:
                 echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "USERCTL=yes" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+                echo "DEFROUTE=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "IPV6INIT=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "PERSISTENT_DHCLIENT="1" >> /etc/sysconfig/network-scripts/ifcfg-eth1
-                echo "172.12.0.0/28 via 172.11.0.3 dev eth1" >> /etc/sysconfig/network-scripts/route-eth1
+                echo "172.21.0.0/28 via 172.11.0.1 dev eth1" >> /etc/sysconfig/network-scripts/route-eth1
                 systemctl restart network
     relationships:
       - target: network1_port2
         type: cloudify.relationships.connected_to
       - target: csr_security_group
         type: cloudify.openstack.server_connected_to_security_group
+      - target: csr1000v-set-hostname
+        type: cloudify.relationships.depends_on
+
+  httpd_web_server:
+    type: cloudify.nodes.ApplicationServer
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create: 
+          implementation: scripts/httpd_create.sh
+          inputs:
+            process:
+              cwd: /tmp
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: web_server
 
 
-  test_vm:
+  client_vm:
     type: cloudify.openstack.nodes.Server
     properties:
+      install_agent: true
+      management_network_name: { get_input: management_network_name }
       agent_config:
         user: 'centos'
     interfaces:
@@ -175,8 +269,9 @@ node_templates:
         create:
           inputs:
             args:
-              image: 'ebab03e6-a674-4b6e-8f60-691c90fbcdc6'
-              flavor: { get_input: flavor }
+              config_drive: true
+              image: { get_input: vm_image }
+              flavor: { get_input: vm_flavor }
               userdata: |
                 #!/bin/bash
                 echo "DEVICE=eth1" >> /etc/sysconfig/network-scripts/ifcfg-eth1
@@ -185,29 +280,32 @@ node_templates:
                 echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "USERCTL=yes" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+                echo "DEFROUTE=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "IPV6INIT=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
                 echo "PERSISTENT_DHCLIENT="1" >> /etc/sysconfig/network-scripts/ifcfg-eth1
-                echo "172.11.0.0/28 via 172.12.0.3 dev eth1" >> /etc/sysconfig/network-scripts/route-eth1
+                echo "172.11.0.0/28 via 172.21.0.1 dev eth1" >> /etc/sysconfig/network-scripts/route-eth1
                 systemctl restart network
     relationships:
       - target: network2_port2
         type: cloudify.relationships.connected_to
       - target: csr_security_group
         type: cloudify.openstack.server_connected_to_security_group
-
+      - target: client_vm_floating_ip
+        type: cloudify.openstack.server_connected_to_floating_ip
+        
   network1:
     type: cloudify.openstack.nodes.Network
     properties:
-      resource_id: 'network1'
+      resource_id: { get_input: cisco_network1 }
       use_external_resource : false
 
   network1_subnet:
     type: cloudify.openstack.nodes.Subnet
     properties:
-      resource_id: 'network1_subnet'
+      resource_id: { get_input: cisco_network1_subnet }
       use_external_resource : false
       subnet:
-        cidr: 172.11.0.0/28
+        cidr: { get_input: cisco_network1_cidr }
         ip_version: 4
     relationships:
       - target: network1
@@ -217,7 +315,7 @@ node_templates:
     type: cloudify.openstack.nodes.Port
     properties:
       use_external_resource : false
-      fixed_ip: 172.11.0.3
+      fixed_ip: { get_input: network1_cisco_port_ip }
     interfaces:
       cloudify.interfaces.lifecycle:
         create:
@@ -235,7 +333,7 @@ node_templates:
     type: cloudify.openstack.nodes.Port
     properties:
       use_external_resource : false
-      fixed_ip: 172.11.0.4
+      fixed_ip: { get_input: web_server_port_ip }
     relationships:
       - type: cloudify.relationships.contained_in
         target: network1
@@ -245,16 +343,16 @@ node_templates:
   network2:
     type: cloudify.openstack.nodes.Network
     properties:
-      resource_id: 'network2'
+      resource_id: { get_input: cisco_network2 }
       use_external_resource : false
 
   network2_subnet:
     type: cloudify.openstack.nodes.Subnet
     properties:
-      resource_id: 'network2_subnet'
+      resource_id: { get_input: cisco_network2_subnet }
       use_external_resource : false
       subnet:
-        cidr: 172.12.0.0/28
+        cidr: { get_input: cisco_network2_cidr }
         ip_version: 4
     relationships:
       - target: network2
@@ -264,7 +362,7 @@ node_templates:
     type: cloudify.openstack.nodes.Port
     properties:
       use_external_resource : false
-      fixed_ip: 172.12.0.3
+      fixed_ip: { get_input: network2_cisco_port_ip }
     interfaces:
       cloudify.interfaces.lifecycle:
         create:
@@ -282,7 +380,7 @@ node_templates:
     type: cloudify.openstack.nodes.Port
     properties:
       use_external_resource : false
-      fixed_ip: 172.12.0.4
+      fixed_ip: { get_input: client_port_ip }
     relationships:
       - type: cloudify.relationships.contained_in
         target: network2
@@ -353,56 +451,20 @@ node_templates:
       security_group:
         name: csr_security_group
       rules:
-        - remote_ip_prefix: 0.0.0.0/0
-          port: 80
-        - remote_ip_prefix: 0.0.0.0/0
-          port: { get_input: management_port }
+        - protocol: tcp
+        - protocol: udp
         - protocol: icmp
           port_range_min: 0
           port_range_max: 0
           remote_ip_prefix: 0.0.0.0/0
-#  Provision Public network and subnet
-
-  # public_net:
-  #   type: cloudify.openstack.nodes.Network
-  #   properties:
-  #     resource_id: { get_input: public_network }
-  #     use_external_resource : false
-
-  # public_net_subnet:
-  #   type: cloudify.openstack.nodes.Subnet
-  #   properties:
-  #     resource_id: { get_input: public_network_subnet }
-  #     use_external_resource : false
-  #     subnet:
-  #       ip_version: 4
-  #       cidr: { get_input: public_network_cidr }
-  #   relationships:
-  #     - target: public_net
-  #       type: cloudify.relationships.contained_in
-
-
-#  Provision Application network and subnet
-
-  # application_net:
-  #   type: cloudify.openstack.nodes.Network
-  #   properties:
-  #     resource_id: { get_input: application_network }
-  #     use_external_resource : false
-
-  # application_net_subnet:
-  #   type: cloudify.openstack.nodes.Subnet
-  #   properties:
-  #     resource_id: { get_input: application_network_subnet }
-  #     use_external_resource : false
-  #     subnet:
-  #       ip_version: 4
-  #       cidr: { get_input: application_network_cidr }
-  #   relationships:
-  #     - target: application_net
-  #       type: cloudify.relationships.contained_in
 
   csr_floating_ip:
+    type: cloudify.openstack.nodes.FloatingIP
+    properties:
+      floatingip:
+        floating_network_name: { get_input: external_network_name }
+
+  client_vm_floating_ip:
     type: cloudify.openstack.nodes.FloatingIP
     properties:
       floatingip:
@@ -413,3 +475,6 @@ outputs:
   CSR1000V:
     value:
       Floating_IP: { get_attribute: [ csr_floating_ip, floating_ip_address ] }
+  Client_VM:
+    value:
+      Floating_IP: { get_attribute: [ client_vm_floating_ip, floating_ip_address ] }
