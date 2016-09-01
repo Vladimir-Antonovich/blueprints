@@ -61,7 +61,7 @@ inputs:
       password vnf
       privil level 15
       exit
-      enable password vnf
+      no enable password
       ip route 0.0.0.0 0.0.0.0 dhcp
       end
       
