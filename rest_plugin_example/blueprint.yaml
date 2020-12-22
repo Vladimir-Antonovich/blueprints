@@ -1,0 +1,30 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+description: >
+  Example how to parse rest response
+
+imports:
+  - https://cloudify.co/spec/cloudify/5.1.0/types.yaml
+  - plugin:cloudify-utilities-plugin
+
+node_templates:
+  request:
+    type: cloudify.rest.Requests
+    properties:
+      hosts: ["127.0.0.1"]
+      port: 80
+      ssl: false
+      verify: false
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        start:
+          inputs:
+            template_file: templates/get-status-template.yaml
+            params:
+              AUTHORIZATION: "Basic YWRtaW46YWRtaW4="
+              TENANT: default_tenant
+
+
+outputs:
+  status:
+    value: { get_attribute: [ request, result_properties, blueprints, items, 0, id ] }

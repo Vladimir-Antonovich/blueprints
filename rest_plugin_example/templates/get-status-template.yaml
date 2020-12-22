@@ -1,0 +1,17 @@
+rest_calls:
+  - path: /api/v3.1/blueprints
+    method: GET
+    headers:
+      Content-type: application/json
+      Authorization: "{{AUTHORIZATION}}"
+      Tenant: "{{TENANT}}"
+    payload:
+      summary: true
+    response_format: json
+    recoverable_codes: []
+    response_translation: 
+      items:
+        - id: [items-0-id]
+        - id: [items-1-id]
+    response_expectation: []
+
